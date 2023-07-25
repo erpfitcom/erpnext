@@ -61,3 +61,18 @@ class TestPointOfSale(unittest.TestCase):
 
 		self.assertEqual(len(filtered_items), 1)
 		self.assertEqual(filtered_items[0]["item_code"], item2.item_code)
+
+		# Test without item group, reuse item1
+		result = get_items(
+			start=0,
+			page_length=20,
+			price_list=None,
+			item_group=None,
+			pos_profile=pos_profile.name,
+			search_term="Test Search Stock Item",
+		)
+		filtered_items = result.get("items")
+
+		self.assertEqual(len(filtered_items), 1)
+		self.assertEqual(filtered_items[0]["item_code"], item1.item_code)
+		self.assertEqual(filtered_items[0]["actual_qty"], 10)
