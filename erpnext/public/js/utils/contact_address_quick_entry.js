@@ -70,6 +70,11 @@ frappe.ui.form.ContactAddressQuickEntryForm = class ContactAddressQuickEntryForm
 			fieldtype: "Data"
 		},
 		{
+			label: __("State"),
+			fieldname: "state",
+			fieldtype: "Data"
+		},
+		{
 			fieldtype: "Column Break"
 		},
 		{
@@ -85,11 +90,6 @@ frappe.ui.form.ContactAddressQuickEntryForm = class ContactAddressQuickEntryForm
 		{
 			label: __("City"),
 			fieldname: "city",
-			fieldtype: "Data"
-		},
-		{
-			label: __("State"),
-			fieldname: "state",
 			fieldtype: "Data"
 		},
 		{
