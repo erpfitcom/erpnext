@@ -675,6 +675,8 @@ def make_address(args, is_primary_address=1):
 			"address_title": args.get("name"),
 			"address_line1": args.get("address_line1"),
 			"address_line2": args.get("address_line2"),
+			"custom_ward": args.get("custom_ward"),
+			"custom_district": args.get("custom_district"),
 			"city": args.get("city"),
 			"state": args.get("state"),
 			"pincode": args.get("pincode"),
