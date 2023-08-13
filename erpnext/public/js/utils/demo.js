@@ -1,15 +1,25 @@
 $(document).on("toolbar_setup", function () {
 	if (frappe.boot.sysdefaults.demo_company) {
-		erpnext.setup_clear_button();
+		render_clear_demo_button();
 	}
 
-	// for first load
+	// for first load after setup.
 	frappe.realtime.on("demo_data_complete", () => {
-		erpnext.setup_clear_button();
+		render_clear_demo_button();
 	});
 });
 
-erpnext.setup_clear_button = function () {
+function render_clear_demo_button() {
+	let wait_for_onboaring_tours = setInterval(() => {
+		if ($("#driver-page-overlay").length) {
+			return;
+		}
+		setup_clear_demo_button();
+		clearInterval(wait_for_onboaring_tours);
+	}, 2000);
+}
+
+function setup_clear_demo_button() {
 	let message_string = __(
 		"Demo data is present on the system, erase data before starting real usage."
 	);
@@ -42,6 +52,12 @@ erpnext.setup_clear_button = function () {
 				>
 					Clear Demo Data
 				</button>
+
+	 			<a type="button" id="dismiss-demo-banner" class="text-muted" style="align-self: center">
+					<svg class="icon" style="">
+						<use class="" href="#icon-close"></use>
+					</svg>
+				</a>
 			</div>
 		</div>
 	`);
@@ -68,4 +84,8 @@ erpnext.setup_clear_button = function () {
 			}
 		);
 	});
-};
+
+	$("#dismiss-demo-banner").on("click", function () {
+		$floatingBar.remove();
+	});
+}
