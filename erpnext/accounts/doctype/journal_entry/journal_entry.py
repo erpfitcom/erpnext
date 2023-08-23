@@ -96,6 +96,8 @@ class JournalEntry(AccountsController):
 			"Payment Ledger Entry",
 			"Repost Payment Ledger",
 			"Repost Payment Ledger Items",
+			"Repost Accounting Ledger",
+			"Repost Accounting Ledger Items",
 		)
 		self.make_gl_entries(1)
 		self.update_advance_paid()
@@ -794,6 +796,9 @@ class JournalEntry(AccountsController):
 
 	def create_remarks(self):
 		r = []
+
+		if self.flags.skip_remarks_creation:
+			return
 
 		if self.user_remark:
 			r.append(_("Note: {0}").format(self.user_remark))
