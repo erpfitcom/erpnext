@@ -201,9 +201,10 @@ erpnext.PointOfSale.Payment = class {
 		this.$component.on('click', '.submit-order-btn', () => {
 			const doc = this.events.get_frm().doc;
 			const paid_amount = doc.paid_amount;
+			const discount_amount = doc.discount_amount;
 			const items = doc.items;
 
-			if (paid_amount == 0 || !items.length) {
+			if ((paid_amount == 0 && discount_amount == 0) || !items.length) {
 				const message = items.length ? __("You cannot submit the order without payment.") : __("You cannot submit empty order.");
 				frappe.show_alert({ message, indicator: "orange" });
 				frappe.utils.play_sound("error");
