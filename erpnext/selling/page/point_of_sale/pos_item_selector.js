@@ -44,17 +44,17 @@ erpnext.PointOfSale.ItemSelector = class {
 		this.price_lists = await frappe.db.get_list("Price List", {
 			filters: [
 				["selling", "=", 1], 
-				["docstatus", "=", 0], 
+				["enabled", "=", 1],
 				["name", "!=", this.price_list]
 			],
 			fields: ["name"]
 		});
 
-		if (!this.price_lists.length) {
+		if (this.price_lists && this.price_lists.length) {
 			this.item_prices = await frappe.db.get_list('Item Price', {
 				limit: 9999, // @fixme: proper pagination
 				filters: [
-					["parent", "in", this.price_lists.map(p => p.name)]
+					["price_list", "in", this.price_lists.map(p => p.name)]
 				],
 				or_filters: [
 					["valid_from", "<=", frappe.datetime.get_today()],
@@ -62,7 +62,7 @@ erpnext.PointOfSale.ItemSelector = class {
 				],
 				fields: ['item_code', 'price_list_rate', 'currency', 'valid_from', 'valid_upto']
 			}).then((item_prices) => {
-				return item_prices.filter((item_price) => !item_price.valid_upto || frappe.datetime.get_day_diff(frappe.datetime.get_today(), item_price.valid_upto) < 0);
+				return item_prices.filter((item_price) => !item_price.valid_upto || frappe.datetime.get_day_diff(frappe.datetime.get_today(), item_price.valid_upto) <= 0);
 			});
 		}
 	}
@@ -79,14 +79,16 @@ erpnext.PointOfSale.ItemSelector = class {
 
 				// @todo: fixme - this will cause error in case of multiple currencies
 				if (item_price) {
+					if (! item._price_list_rate) {
+						item._price_list_rate = item_price.price_list_rate;
+					}
+					
 					item.price_list_rate = item_price.price_list_rate;
 					item.currency = item_price.currency;
 				}
 
 				return item;
 			});
-		} else {
-			console.log('No other price lists found');;
 		}
 
 		return items;
@@ -115,17 +117,18 @@ erpnext.PointOfSale.ItemSelector = class {
 
 		!item_group && (item_group = this.parent_item_group);
 
-		const message = await frappe.call({
+		const response = await frappe.call({
 			method: "erpnext.selling.page.point_of_sale.point_of_sale.get_items",
 			freeze: true,
 			args: { start, page_length, price_list, item_group, search_term, pos_profile },
 		});
 
-		if (message.items) {
-			message.items = this.apply_better_items_rates(message.items);
+		console.log('get_items', response);
+		if (response.message && response.message.items) {
+			response.message.items = this.apply_better_items_rates(response.message.items);
 		}
 
-		return message;
+		return response;
 	}
 
 
@@ -158,9 +161,17 @@ erpnext.PointOfSale.ItemSelector = class {
 			qty_to_display = '';
 		}
 
+		function get_item_better_price_html() {
+			if (item._price_list_rate) {
+				return `<span class="indicator-pill whitespace-nowrap cyan">%</span>`;
+			}
+			return "";
+		}
+
 		function get_item_image_html() {
 			if (!me.hide_images && item_image) {
-				return `<div class="item-qty-pill">
+				return `<div class="item-qty-pill flex justify-between">
+							${get_item_better_price_html()}
 							<span class="indicator-pill whitespace-nowrap ${indicator_color}">${qty_to_display}</span>
 						</div>
 						<div class="flex items-center justify-center h-32 border-b-grey text-6xl text-grey-100">
@@ -169,12 +180,15 @@ erpnext.PointOfSale.ItemSelector = class {
 								class="h-full item-img" src="${item_image}"
 								alt="${frappe.get_abbr(item.item_name)}"
 							>
+							
 						</div>`;
 			} else {
-				return `<div class="item-qty-pill">
+				return `<div class="item-qty-pill flex justify-between">
+							${get_item_better_price_html()}
 							<span class="indicator-pill whitespace-nowrap ${indicator_color}">${qty_to_display}</span>
 						</div>
-						<div class="item-display abbr">${frappe.get_abbr(item.item_name)}</div>`;
+						<div class="item-display abbr">${frappe.get_abbr(item.item_name)}</div>
+						`;
 			}
 		}
 
