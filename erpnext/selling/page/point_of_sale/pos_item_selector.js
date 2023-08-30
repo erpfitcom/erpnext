@@ -125,7 +125,7 @@ erpnext.PointOfSale.ItemSelector = class {
 			message.items = this.apply_better_items_rates(message.items);
 		}
 
-		return message.items;
+		return message;
 	}
 
 
