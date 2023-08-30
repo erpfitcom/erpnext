@@ -36,6 +36,17 @@ erpnext.PointOfSale.ItemSelector = class {
 		this.$items_container = this.$component.find('.items-container');
 	}
 
+	async load_price_lists() {
+		if (this.price_lists) {
+			return;
+		}
+
+		this.price_lists = await frappe.db.get_list("Price List", {
+			filters: [["selling", "=", 1], ["docstatus", "=", 0]],
+			fields: ["name"]
+		});
+	}
+
 	async load_items_data() {
 		if (!this.item_group) {
 			const res = await frappe.db.get_value("Item Group", {lft: 1, is_group: 1}, "name");
@@ -45,6 +56,9 @@ erpnext.PointOfSale.ItemSelector = class {
 			const res = await frappe.db.get_value("POS Profile", this.pos_profile, "selling_price_list");
 			this.price_list = res.message.selling_price_list;
 		}
+		if (!this.price_lists) {
+			await this.load_price_lists();
+		}
 
 		this.get_items({}).then(({message}) => {
 			this.render_item_list(message.items);
@@ -53,7 +67,10 @@ erpnext.PointOfSale.ItemSelector = class {
 
 	get_items({start = 0, page_length = 40, search_term=''}) {
 		const doc = this.events.get_frm().doc;
-		const price_list = (doc && doc.selling_price_list) || this.price_list;
+		let price_list = (doc && doc.selling_price_list) || this.price_list;
+		if (this.price_lists && this.price_lists.length > 1) {
+			price_list = ["name", "in", this.price_lists.map(d => d.name)];
+		}
 		let { item_group, pos_profile } = this;
 
 		!item_group && (item_group = this.parent_item_group);
