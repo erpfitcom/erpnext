@@ -42,9 +42,54 @@ erpnext.PointOfSale.ItemSelector = class {
 		}
 
 		this.price_lists = await frappe.db.get_list("Price List", {
-			filters: [["selling", "=", 1], ["docstatus", "=", 0]],
+			filters: [
+				["selling", "=", 1], 
+				["docstatus", "=", 0], 
+				["name", "!=", this.price_list]
+			],
 			fields: ["name"]
 		});
+
+		if (!this.price_lists.length) {
+			this.item_prices = await frappe.db.get_list('Item Price', {
+				limit: 9999, // @fixme: proper pagination
+				filters: [
+					["parent", "in", this.price_lists.map(p => p.name)]
+				],
+				or_filters: [
+					["valid_from", "<=", frappe.datetime.get_today()],
+					["valid_from", "is", "not set"]
+				],
+				fields: ['item_code', 'price_list_rate', 'currency', 'valid_from', 'valid_upto']
+			}).then((item_prices) => {
+				return item_prices.filter((item_price) => !item_price.valid_upto || frappe.datetime.get_day_diff(frappe.datetime.get_today(), item_price.valid_upto) < 0);
+			});
+		}
+	}
+
+	apply_better_items_rates(items) {
+		if (!items || !items.length) return items;
+
+		// apply lower item rates from other price lists
+		if (this.item_prices && this.item_prices.length) {
+			items = items.map(item => {
+				const item_price = this.item_prices
+					.filter(ip => ip.item_code === item.item_code && ip.price_list_rate < item.price_list_rate)
+					.sort((a, b) => b.price_list_rate - a.price_list_rate)[0];
+
+				// @todo: fixme - this will cause error in case of multiple currencies
+				if (item_price) {
+					item.price_list_rate = item_price.price_list_rate;
+					item.currency = item_price.currency;
+				}
+
+				return item;
+			});
+		} else {
+			console.log('No other price lists found');;
+		}
+
+		return items;
 	}
 
 	async load_items_data() {
@@ -56,30 +101,31 @@ erpnext.PointOfSale.ItemSelector = class {
 			const res = await frappe.db.get_value("POS Profile", this.pos_profile, "selling_price_list");
 			this.price_list = res.message.selling_price_list;
 		}
-		if (!this.price_lists) {
-			await this.load_price_lists();
-		}
+		await this.load_price_lists();
 
 		this.get_items({}).then(({message}) => {
 			this.render_item_list(message.items);
 		});
 	}
 
-	get_items({start = 0, page_length = 40, search_term=''}) {
+	async get_items({start = 0, page_length = 40, search_term=''}) {
 		const doc = this.events.get_frm().doc;
 		let price_list = (doc && doc.selling_price_list) || this.price_list;
-		if (this.price_lists && this.price_lists.length > 1) {
-			price_list = ["name", "in", this.price_lists.map(d => d.name)];
-		}
 		let { item_group, pos_profile } = this;
 
 		!item_group && (item_group = this.parent_item_group);
 
-		return frappe.call({
+		const message = await frappe.call({
 			method: "erpnext.selling.page.point_of_sale.point_of_sale.get_items",
 			freeze: true,
 			args: { start, page_length, price_list, item_group, search_term, pos_profile },
 		});
+
+		if (message.items) {
+			message.items = this.apply_better_items_rates(message.items);
+		}
+
+		return message.items;
 	}
 
 
