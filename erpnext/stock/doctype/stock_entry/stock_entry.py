@@ -534,16 +534,20 @@ class StockEntry(StockController):
 				else:
 					frappe.throw(_("Target warehouse is mandatory for row {0}").format(d.idx))
 
-			if self.purpose == "Manufacture":
-				if validate_for_manufacture:
-					if d.is_finished_item or d.is_scrap_item:
-						d.s_warehouse = None
-						if not d.t_warehouse:
-							frappe.throw(_("Target warehouse is mandatory for row {0}").format(d.idx))
-					else:
-						d.t_warehouse = None
-						if not d.s_warehouse:
-							frappe.throw(_("Source warehouse is mandatory for row {0}").format(d.idx))
+			# Don't be outsmart user, we are allowing user to select to_warehouse
+			# Sometime user also want to transfer raw material or sub-assembly out of MFG WO
+			# @todo: this should be configurable
+
+			# if self.purpose == "Manufacture":
+			# 	if validate_for_manufacture:
+			# 		if d.is_finished_item or d.is_scrap_item:
+			# 			d.s_warehouse = None
+			# 			if not d.t_warehouse:
+			# 				frappe.throw(_("Target warehouse is mandatory for row {0}").format(d.idx))
+			# 		else:
+			# 			d.t_warehouse = None
+			# 			if not d.s_warehouse:
+			# 				frappe.throw(_("Source warehouse is mandatory for row {0}").format(d.idx))
 
 			if cstr(d.s_warehouse) == cstr(d.t_warehouse) and self.purpose not in [
 				"Material Transfer for Manufacture",
@@ -1653,16 +1657,16 @@ class StockEntry(StockController):
 				fields=["max(process_loss_qty) as process_loss_qty"],
 			)
 
-			if data and data[0].process_loss_qty is not None:
+			if data and data[0].process_loss_qty is not None and self.process_loss_qty is not None:
 				process_loss_qty = data[0].process_loss_qty
-				if flt(self.process_loss_qty, precision) != flt(process_loss_qty, precision) and self.process_loss_qty is None:
+				if flt(self.process_loss_qty, precision) != flt(process_loss_qty, precision):
 					self.process_loss_qty = flt(process_loss_qty, precision)
 
 					frappe.msgprint(
 						_("The Process Loss Qty has reset as per job cards Process Loss Qty"), alert=True
 					)
 
-		if not self.process_loss_percentage and not self.process_loss_qty:
+		if self.process_loss_percentage is None and self.process_loss_qty is None:
 			self.process_loss_percentage = frappe.get_cached_value(
 				"BOM", self.bom_no, "process_loss_percentage"
 			)
