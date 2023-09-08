@@ -1096,8 +1096,10 @@ class AccountsController(TransactionBase):
 								self.name,
 								arg.get("referenced_row"),
 							):
+								posting_date = frappe.db.get_value(arg.voucher_type, arg.voucher_no, "posting_date")
 								je = create_gain_loss_journal(
 									self.company,
+									posting_date,
 									arg.get("party_type"),
 									arg.get("party"),
 									party_account,
@@ -1177,6 +1179,7 @@ class AccountsController(TransactionBase):
 
 						je = create_gain_loss_journal(
 							self.company,
+							self.posting_date,
 							self.party_type,
 							self.party,
 							party_account,
@@ -2434,7 +2437,8 @@ def get_common_query(
 	limit,
 	condition,
 ):
-	payment_type = "Receive" if party_type == "Customer" else "Pay"
+	account_type = frappe.db.get_value("Party Type", party_type, "account_type")
+	payment_type = "Receive" if account_type == "Receivable" else "Pay"
 	payment_entry = frappe.qb.DocType("Payment Entry")
 
 	q = (
@@ -2451,7 +2455,7 @@ def get_common_query(
 		.where(payment_entry.docstatus == 1)
 	)
 
-	if party_type == "Customer":
+	if payment_type == "Receive":
 		q = q.select((payment_entry.paid_from_account_currency).as_("currency"))
 		q = q.select(payment_entry.paid_from)
 		q = q.where(payment_entry.paid_from.isin(party_account))
