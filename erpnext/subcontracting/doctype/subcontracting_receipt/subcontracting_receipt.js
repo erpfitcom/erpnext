@@ -73,7 +73,8 @@ frappe.ui.form.on('Subcontracting Receipt', {
 					});
 				}, __('Get Items From'));
 
-			frm.fields_dict.supplied_items.grid.update_docfield_property('consumed_qty', 'read_only', frm.doc.__onload && frm.doc.__onload.backflush_based_on === 'BOM');
+			// user can edit `consumed_qty`
+			// frm.fields_dict.supplied_items.grid.update_docfield_property('consumed_qty', 'read_only', frm.doc.__onload && frm.doc.__onload.backflush_based_on === 'BOM');
 		}
 
 		frm.trigger('setup_quality_inspection');
