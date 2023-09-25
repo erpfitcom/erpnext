@@ -235,6 +235,13 @@ erpnext.TransactionController = class TransactionController extends erpnext.taxe
 		this.load_available_price_list();
 	}
 
+	toggle_enable_for_stock_uom(field) {
+		frappe.db.get_single_value('Stock Settings', field)
+		.then(value => {
+			this.frm.fields_dict["items"].grid.toggle_enable("stock_qty", value);
+		});
+	}
+
 	onload() {
 		var me = this;
 
@@ -1200,6 +1207,16 @@ erpnext.TransactionController = class TransactionController extends erpnext.taxe
 			() => this.calculate_stock_uom_rate(doc, cdt, cdn),
 			() => this.apply_pricing_rule(item, true)
 		]);
+	}
+
+	stock_qty(doc, cdt, cdn) {
+		let item = frappe.get_doc(cdt, cdn);
+		item.conversion_factor = 1.0;
+		if (item.stock_qty) {
+			item.conversion_factor = flt(item.stock_qty) / flt(item.qty);
+		}
+
+		refresh_field("conversion_factor", item.name, item.parentfield);
 	}
 
 	calculate_stock_uom_rate(doc, cdt, cdn) {
