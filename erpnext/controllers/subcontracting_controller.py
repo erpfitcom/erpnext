@@ -292,7 +292,7 @@ class SubcontractingController(StockController):
 			voucher_no=voucher_nos,
 			is_outward=1,
 			get_subcontracted_item=("Subcontracting Receipt Supplied Item", "main_item_code"),
-		)
+		) if len(voucher_nos) > 0 else None
 
 		if return_consumed_items:
 			return (consumed_materials, receipt_items)
