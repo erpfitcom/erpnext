@@ -347,7 +347,7 @@ class SubcontractingController(StockController):
 			voucher_no=voucher_nos,
 			is_outward=0,
 			get_subcontracted_item=("Stock Entry Detail", "subcontracted_item"),
-		)
+		) if len(voucher_nos) > 0 else None
 
 		for row in transferred_items:
 			key = (row.rm_item_code, row.main_item_code, row.get(self.subcontract_data.order_field))
