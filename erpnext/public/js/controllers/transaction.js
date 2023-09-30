@@ -934,7 +934,9 @@ erpnext.TransactionController = class TransactionController extends erpnext.taxe
 	}
 
 	bill_date() {
-		this.posting_date();
+		if (this.frm.doc.docstatus != 1) {
+			this.posting_date();
+		}
 	}
 
 	recalculate_terms() {
