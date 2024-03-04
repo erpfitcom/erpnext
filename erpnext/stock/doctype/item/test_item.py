@@ -163,7 +163,7 @@ class TestItem(FrappeTestCase):
 			{
 				"item_code": "_Test Item With Item Tax Template",
 				"tax_category": "_Test Tax Category 2",
-				"item_tax_template": "",
+				"item_tax_template": None,
 			},
 			{
 				"item_code": "_Test Item Inherit Group Item Tax Template 1",
@@ -178,7 +178,7 @@ class TestItem(FrappeTestCase):
 			{
 				"item_code": "_Test Item Inherit Group Item Tax Template 1",
 				"tax_category": "_Test Tax Category 2",
-				"item_tax_template": "",
+				"item_tax_template": None,
 			},
 			{
 				"item_code": "_Test Item Inherit Group Item Tax Template 2",
@@ -193,7 +193,7 @@ class TestItem(FrappeTestCase):
 			{
 				"item_code": "_Test Item Inherit Group Item Tax Template 2",
 				"tax_category": "_Test Tax Category 2",
-				"item_tax_template": "",
+				"item_tax_template": None,
 			},
 			{
 				"item_code": "_Test Item Override Group Item Tax Template",
@@ -208,12 +208,12 @@ class TestItem(FrappeTestCase):
 			{
 				"item_code": "_Test Item Override Group Item Tax Template",
 				"tax_category": "_Test Tax Category 2",
-				"item_tax_template": "",
+				"item_tax_template": None,
 			},
 		]
 
 		expected_item_tax_map = {
-			"": {},
+			None: {},
 			"_Test Account Excise Duty @ 10 - _TC": {"_Test Account Excise Duty - _TC": 10},
 			"_Test Account Excise Duty @ 12 - _TC": {"_Test Account Excise Duty - _TC": 12},
 			"_Test Account Excise Duty @ 15 - _TC": {"_Test Account Excise Duty - _TC": 15},
@@ -522,39 +522,25 @@ class TestItem(FrappeTestCase):
 		self.assertEqual(factor, 1.0)
 
 	def test_item_variant_by_manufacturer(self):
-		fields = [{"field_name": "description"}, {"field_name": "variant_based_on"}]
-		set_item_variant_settings(fields)
+		template = make_item(
+			"_Test Item Variant By Manufacturer", {"has_variants": 1, "variant_based_on": "Manufacturer"}
+		).name
 
-		if frappe.db.exists("Item", "_Test Variant Mfg"):
-			frappe.delete_doc("Item", "_Test Variant Mfg")
-		if frappe.db.exists("Item", "_Test Variant Mfg-1"):
-			frappe.delete_doc("Item", "_Test Variant Mfg-1")
-		if frappe.db.exists("Manufacturer", "MSG1"):
-			frappe.delete_doc("Manufacturer", "MSG1")
+		for manufacturer in ["DFSS", "DASA", "ASAAS"]:
+			if not frappe.db.exists("Manufacturer", manufacturer):
+				m_doc = frappe.new_doc("Manufacturer")
+				m_doc.short_name = manufacturer
+				m_doc.insert()
 
-		template = frappe.get_doc(
-			dict(
-				doctype="Item",
-				item_code="_Test Variant Mfg",
-				has_variant=1,
-				item_group="Products",
-				variant_based_on="Manufacturer",
-			)
-		).insert()
+		self.assertFalse(frappe.db.exists("Item Manufacturer", {"manufacturer": "DFSS"}))
+		variant = get_variant(template, manufacturer="DFSS", manufacturer_part_no="DFSS-123")
 
-		manufacturer = frappe.get_doc(dict(doctype="Manufacturer", short_name="MSG1")).insert()
+		item_manufacturer = frappe.db.exists(
+			"Item Manufacturer", {"manufacturer": "DFSS", "item_code": variant.name}
+		)
+		self.assertTrue(item_manufacturer)
 
-		variant = get_variant(template.name, manufacturer=manufacturer.name)
-		self.assertEqual(variant.item_code, "_Test Variant Mfg-1")
-		self.assertEqual(variant.description, "_Test Variant Mfg")
-		self.assertEqual(variant.manufacturer, "MSG1")
-		variant.insert()
-
-		variant = get_variant(template.name, manufacturer=manufacturer.name, manufacturer_part_no="007")
-		self.assertEqual(variant.item_code, "_Test Variant Mfg-2")
-		self.assertEqual(variant.description, "_Test Variant Mfg")
-		self.assertEqual(variant.manufacturer, "MSG1")
-		self.assertEqual(variant.manufacturer_part_no, "007")
+		frappe.delete_doc("Item Manufacturer", item_manufacturer)
 
 	def test_stock_exists_against_template_item(self):
 		stock_item = frappe.get_all("Stock Ledger Entry", fields=["item_code"], limit=1)

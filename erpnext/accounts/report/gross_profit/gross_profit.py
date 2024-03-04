@@ -695,7 +695,7 @@ class GrossProfitGenerator(object):
 
 	def get_average_buying_rate(self, row, item_code):
 		args = row
-		if not item_code in self.average_buying_rate:
+		if item_code not in self.average_buying_rate:
 			args.update(
 				{
 					"voucher_type": row.parenttype,
@@ -975,7 +975,7 @@ class GrossProfitGenerator(object):
 						& (sle.is_cancelled == 0)
 					)
 					.orderby(sle.item_code)
-					.orderby(sle.warehouse, sle.posting_date, sle.posting_time, sle.creation, order=Order.desc)
+					.orderby(sle.warehouse, sle.posting_datetime, sle.creation, order=Order.desc)
 					.run(as_dict=True)
 				)
 

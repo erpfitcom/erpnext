@@ -78,8 +78,14 @@ frappe.query_reports["Trial Balance"] = {
 			"options": erpnext.get_presentation_currency_list()
 		},
 		{
-			"fieldname": "with_period_closing_entry",
-			"label": __("Period Closing Entry"),
+			"fieldname": "with_period_closing_entry_for_opening",
+			"label": __("With Period Closing Entry For Opening Balances"),
+			"fieldtype": "Check",
+			"default": 1
+		},
+		{
+			"fieldname": "with_period_closing_entry_for_current_period",
+			"label": __("Period Closing Entry For Current Period"),
 			"fieldtype": "Check",
 			"default": 1
 		},
@@ -95,7 +101,7 @@ frappe.query_reports["Trial Balance"] = {
 		},
 		{
 			"fieldname": "include_default_book_entries",
-			"label": __("Include Default Book Entries"),
+			"label": __("Include Default FB Entries"),
 			"fieldtype": "Check",
 			"default": 1
 		},

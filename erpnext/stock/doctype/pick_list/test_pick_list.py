@@ -217,6 +217,8 @@ class TestPickList(FrappeTestCase):
 		)
 
 		pick_list.save()
+		pick_list.submit()
+
 		self.assertEqual(pick_list.locations[0].item_code, "_Test Serialized Item")
 		self.assertEqual(pick_list.locations[0].warehouse, "_Test Warehouse - _TC")
 		self.assertEqual(pick_list.locations[0].qty, 5)
@@ -239,7 +241,7 @@ class TestPickList(FrappeTestCase):
 		pr1 = make_purchase_receipt(item_code="Batched Item", qty=1, rate=100.0)
 
 		pr1.load_from_db()
-		oldest_batch_no = pr1.items[0].batch_no
+		oldest_batch_no = get_batch_from_bundle(pr1.items[0].serial_and_batch_bundle)
 
 		pr2 = make_purchase_receipt(item_code="Batched Item", qty=2, rate=100.0)
 
@@ -302,6 +304,8 @@ class TestPickList(FrappeTestCase):
 			}
 		)
 		pick_list.set_item_locations()
+		pick_list.submit()
+		pick_list.reload()
 
 		self.assertEqual(
 			get_batch_from_bundle(pick_list.locations[0].serial_and_batch_bundle), oldest_batch_no
@@ -310,6 +314,7 @@ class TestPickList(FrappeTestCase):
 			get_serial_nos_from_bundle(pick_list.locations[0].serial_and_batch_bundle), oldest_serial_nos
 		)
 
+		pick_list.cancel()
 		pr1.cancel()
 		pr2.cancel()
 
@@ -644,6 +649,112 @@ class TestPickList(FrappeTestCase):
 		so.reload()
 		self.assertEqual(so.per_picked, 50)
 
+	def test_picklist_for_batch_item(self):
+		warehouse = "_Test Warehouse - _TC"
+		item = make_item(
+			properties={"is_stock_item": 1, "has_batch_no": 1, "batch_no_series": "PICKLT-.######"}
+		).name
+
+		# create batch
+		for batch_id in ["PICKLT-000001", "PICKLT-000002"]:
+			if not frappe.db.exists("Batch", batch_id):
+				frappe.get_doc(
+					{
+						"doctype": "Batch",
+						"batch_id": batch_id,
+						"item": item,
+					}
+				).insert()
+
+		make_stock_entry(
+			item=item,
+			to_warehouse=warehouse,
+			qty=50,
+			basic_rate=100,
+			batches=frappe._dict({"PICKLT-000001": 30, "PICKLT-000002": 20}),
+		)
+
+		so = make_sales_order(item_code=item, qty=25.0, rate=100)
+		pl = create_pick_list(so.name)
+		pl.submit()
+		# pick half the qty
+		for loc in pl.locations:
+			self.assertEqual(loc.qty, 25.0)
+			self.assertTrue(loc.serial_and_batch_bundle)
+
+		pl.save()
+		pl.submit()
+
+		so1 = make_sales_order(item_code=item, qty=10.0, rate=100)
+		pl1 = create_pick_list(so1.name)
+		pl1.submit()
+
+		# pick half the qty
+		for loc in pl1.locations:
+			self.assertEqual(loc.qty, 5.0)
+			self.assertTrue(loc.serial_and_batch_bundle)
+
+			data = frappe.get_all(
+				"Serial and Batch Entry",
+				fields=["qty", "batch_no"],
+				filters={"parent": loc.serial_and_batch_bundle},
+			)
+
+			for d in data:
+				self.assertTrue(d.batch_no in ["PICKLT-000001", "PICKLT-000002"])
+				if d.batch_no == "PICKLT-000001":
+					self.assertEqual(d.qty, 5.0 * -1)
+				elif d.batch_no == "PICKLT-000002":
+					self.assertEqual(d.qty, 5.0 * -1)
+
+		pl1.cancel()
+		pl.cancel()
+
+	def test_picklist_for_serial_item(self):
+		warehouse = "_Test Warehouse - _TC"
+		item = make_item(
+			properties={"is_stock_item": 1, "has_serial_no": 1, "serial_no_series": "SN-PICKLT-.######"}
+		).name
+
+		make_stock_entry(item=item, to_warehouse=warehouse, qty=50, basic_rate=100)
+
+		so = make_sales_order(item_code=item, qty=25.0, rate=100)
+		pl = create_pick_list(so.name)
+		pl.submit()
+		picked_serial_nos = []
+		# pick half the qty
+		for loc in pl.locations:
+			self.assertEqual(loc.qty, 25.0)
+			self.assertTrue(loc.serial_and_batch_bundle)
+
+			data = frappe.get_all(
+				"Serial and Batch Entry", fields=["serial_no"], filters={"parent": loc.serial_and_batch_bundle}
+			)
+
+			picked_serial_nos = [d.serial_no for d in data]
+			self.assertEqual(len(picked_serial_nos), 25)
+
+		so1 = make_sales_order(item_code=item, qty=10.0, rate=100)
+		pl1 = create_pick_list(so1.name)
+		pl1.submit()
+		# pick half the qty
+		for loc in pl1.locations:
+			self.assertEqual(loc.qty, 10.0)
+			self.assertTrue(loc.serial_and_batch_bundle)
+
+			data = frappe.get_all(
+				"Serial and Batch Entry",
+				fields=["qty", "batch_no"],
+				filters={"parent": loc.serial_and_batch_bundle},
+			)
+
+			self.assertEqual(len(data), 10)
+			for d in data:
+				self.assertTrue(d.serial_no not in picked_serial_nos)
+
+		pl1.cancel()
+		pl.cancel()
+
 	def test_picklist_with_bundles(self):
 		warehouse = "_Test Warehouse - _TC"
 
@@ -732,7 +843,7 @@ class TestPickList(FrappeTestCase):
 
 		dn.cancel()
 		pl.reload()
-		self.assertEqual(pl.status, "Completed")
+		self.assertEqual(pl.status, "Open")
 
 		pl.cancel()
 		pl.reload()

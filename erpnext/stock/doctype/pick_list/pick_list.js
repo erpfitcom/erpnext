@@ -16,7 +16,6 @@ frappe.ui.form.on('Pick List', {
 		frm.set_query('parent_warehouse', () => {
 			return {
 				filters: {
-					'is_group': 1,
 					'company': frm.doc.company
 				}
 			};
@@ -78,6 +77,9 @@ frappe.ui.form.on('Pick List', {
 				},
 				freeze: 1,
 				freeze_message: __("Setting Item Locations..."),
+				callback(r) {
+					refresh_field("locations");
+				}
 			});
 		}
 	},
@@ -283,6 +285,7 @@ frappe.ui.form.on('Pick List Item', {
 			});
 		}
 	},
+
 	uom: (frm, cdt, cdn) => {
 		let row = frappe.get_doc(cdt, cdn);
 		if (row.uom) {
@@ -291,13 +294,51 @@ frappe.ui.form.on('Pick List Item', {
 			});
 		}
 	},
+
 	qty: (frm, cdt, cdn) => {
 		let row = frappe.get_doc(cdt, cdn);
 		frappe.model.set_value(cdt, cdn, 'stock_qty', row.qty * row.conversion_factor);
 	},
+
 	conversion_factor: (frm, cdt, cdn) => {
 		let row = frappe.get_doc(cdt, cdn);
 		frappe.model.set_value(cdt, cdn, 'stock_qty', row.qty * row.conversion_factor);
+	},
+
+	pick_serial_and_batch(frm, cdt, cdn) {
+		let item = locals[cdt][cdn];
+		let path = "assets/erpnext/js/utils/serial_no_batch_selector.js";
+
+		frappe.db.get_value("Item", item.item_code, ["has_batch_no", "has_serial_no"])
+			.then((r) => {
+				if (r.message && (r.message.has_batch_no || r.message.has_serial_no)) {
+					item.has_serial_no = r.message.has_serial_no;
+					item.has_batch_no = r.message.has_batch_no;
+					item.type_of_transaction = item.qty > 0 ? "Outward":"Inward";
+
+					item.title = item.has_serial_no ?
+						__("Select Serial No") : __("Select Batch No");
+
+					if (item.has_serial_no && item.has_batch_no) {
+						item.title = __("Select Serial and Batch");
+					}
+
+					frappe.require(path, function() {
+						new erpnext.SerialBatchPackageSelector(
+							frm, item, (r) => {
+								if (r) {
+									let qty = Math.abs(r.total_qty);
+									frappe.model.set_value(item.doctype, item.name, {
+										"serial_and_batch_bundle": r.name,
+										"use_serial_batch_fields": 0,
+										"qty": qty / flt(item.conversion_factor || 1, precision("conversion_factor", item))
+									});
+								}
+							}
+						);
+					});
+				}
+			});
 	}
 });
 

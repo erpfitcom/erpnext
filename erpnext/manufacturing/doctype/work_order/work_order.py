@@ -64,6 +64,80 @@ class SerialNoQtyError(frappe.ValidationError):
 
 
 class WorkOrder(Document):
+	# begin: auto-generated types
+	# This code is auto-generated. Do not modify anything in this block.
+
+	from typing import TYPE_CHECKING
+
+	if TYPE_CHECKING:
+		from frappe.types import DF
+
+		from erpnext.manufacturing.doctype.work_order_item.work_order_item import WorkOrderItem
+		from erpnext.manufacturing.doctype.work_order_operation.work_order_operation import (
+			WorkOrderOperation,
+		)
+
+		actual_end_date: DF.Datetime | None
+		actual_operating_cost: DF.Currency
+		actual_start_date: DF.Datetime | None
+		additional_operating_cost: DF.Currency
+		allow_alternative_item: DF.Check
+		amended_from: DF.Link | None
+		batch_size: DF.Float
+		bom_no: DF.Link
+		company: DF.Link
+		corrective_operation_cost: DF.Currency
+		description: DF.SmallText | None
+		expected_delivery_date: DF.Date | None
+		fg_warehouse: DF.Link
+		from_wip_warehouse: DF.Check
+		has_batch_no: DF.Check
+		has_serial_no: DF.Check
+		image: DF.AttachImage | None
+		item_name: DF.Data | None
+		lead_time: DF.Float
+		material_request: DF.Link | None
+		material_request_item: DF.Data | None
+		material_transferred_for_manufacturing: DF.Float
+		naming_series: DF.Literal["MFG-WO-.YYYY.-"]
+		operations: DF.Table[WorkOrderOperation]
+		planned_end_date: DF.Datetime | None
+		planned_operating_cost: DF.Currency
+		planned_start_date: DF.Datetime
+		process_loss_qty: DF.Float
+		produced_qty: DF.Float
+		product_bundle_item: DF.Link | None
+		production_item: DF.Link
+		production_plan: DF.Link | None
+		production_plan_item: DF.Data | None
+		production_plan_sub_assembly_item: DF.Data | None
+		project: DF.Link | None
+		qty: DF.Float
+		required_items: DF.Table[WorkOrderItem]
+		sales_order: DF.Link | None
+		sales_order_item: DF.Data | None
+		scrap_warehouse: DF.Link | None
+		skip_transfer: DF.Check
+		source_warehouse: DF.Link | None
+		status: DF.Literal[
+			"",
+			"Draft",
+			"Submitted",
+			"Not Started",
+			"In Process",
+			"Completed",
+			"Stopped",
+			"Closed",
+			"Cancelled",
+		]
+		stock_uom: DF.Link | None
+		total_operating_cost: DF.Currency
+		transfer_material_against: DF.Literal["", "Work Order", "Job Card"]
+		update_consumed_material_cost_in_project: DF.Check
+		use_multi_level_bom: DF.Check
+		wip_warehouse: DF.Link | None
+	# end: auto-generated types
+
 	def onload(self):
 		ms = frappe.get_doc("Manufacturing Settings")
 		self.set_onload("material_consumption", ms.material_consumption)
@@ -168,8 +242,12 @@ class WorkOrder(Document):
 	def calculate_operating_cost(self):
 		self.planned_operating_cost, self.actual_operating_cost = 0.0, 0.0
 		for d in self.get("operations"):
-			d.planned_operating_cost = flt(d.hour_rate) * (flt(d.time_in_mins) / 60.0)
-			d.actual_operating_cost = flt(d.hour_rate) * (flt(d.actual_operation_time) / 60.0)
+			d.planned_operating_cost = flt(
+				flt(d.hour_rate) * (flt(d.time_in_mins) / 60.0), d.precision("planned_operating_cost")
+			)
+			d.actual_operating_cost = flt(
+				flt(d.hour_rate) * (flt(d.actual_operation_time) / 60.0), d.precision("actual_operating_cost")
+			)
 
 			self.planned_operating_cost += flt(d.planned_operating_cost)
 			self.actual_operating_cost += flt(d.actual_operating_cost)
@@ -293,6 +371,7 @@ class WorkOrder(Document):
 				update_produced_qty_in_so_item(self.sales_order, self.sales_order_item)
 
 		if self.production_plan:
+			self.set_produced_qty_for_sub_assembly_item()
 			self.update_production_plan_status()
 
 	def get_transferred_or_manufactured_qty(self, purpose):
@@ -513,7 +592,6 @@ class WorkOrder(Document):
 	def prepare_data_for_job_card(self, row, index, plan_days, enable_capacity_planning):
 		self.set_operation_start_end_time(index, row)
 
-		original_start_time = row.planned_start_time
 		job_card_doc = create_job_card(
 			self, row, auto_create=True, enable_capacity_planning=enable_capacity_planning
 		)
@@ -522,11 +600,15 @@ class WorkOrder(Document):
 			row.planned_start_time = job_card_doc.scheduled_time_logs[-1].from_time
 			row.planned_end_time = job_card_doc.scheduled_time_logs[-1].to_time
 
-			if date_diff(row.planned_start_time, original_start_time) > plan_days:
+			if date_diff(row.planned_end_time, self.planned_start_date) > plan_days:
 				frappe.message_log.pop()
 				frappe.throw(
-					_("Unable to find the time slot in the next {0} days for the operation {1}.").format(
-						plan_days, row.operation
+					_(
+						"Unable to find the time slot in the next {0} days for the operation {1}. Please increase the 'Capacity Planning For (Days)' in the {2}."
+					).format(
+						plan_days,
+						row.operation,
+						get_link_to_form("Manufacturing Settings", "Manufacturing Settings"),
 					),
 					CapacityError,
 				)
@@ -569,15 +651,48 @@ class WorkOrder(Document):
 			)
 
 	def update_planned_qty(self):
+		from erpnext.manufacturing.doctype.production_plan.production_plan import (
+			get_reserved_qty_for_sub_assembly,
+		)
+
+		qty_dict = {"planned_qty": get_planned_qty(self.production_item, self.fg_warehouse)}
+
+		if self.production_plan_sub_assembly_item and self.production_plan:
+			qty_dict["reserved_qty_for_production_plan"] = get_reserved_qty_for_sub_assembly(
+				self.production_item, self.fg_warehouse
+			)
+
 		update_bin_qty(
 			self.production_item,
 			self.fg_warehouse,
-			{"planned_qty": get_planned_qty(self.production_item, self.fg_warehouse)},
+			qty_dict,
 		)
 
 		if self.material_request:
 			mr_obj = frappe.get_doc("Material Request", self.material_request)
 			mr_obj.update_requested_qty([self.material_request_item])
+
+	def set_produced_qty_for_sub_assembly_item(self):
+		table = frappe.qb.DocType("Work Order")
+
+		query = (
+			frappe.qb.from_(table)
+			.select(Sum(table.produced_qty))
+			.where(
+				(table.production_plan == self.production_plan)
+				& (table.production_plan_sub_assembly_item == self.production_plan_sub_assembly_item)
+				& (table.docstatus == 1)
+			)
+		).run()
+
+		produced_qty = flt(query[0][0]) if query else 0
+
+		frappe.db.set_value(
+			"Production Plan Sub Assembly Item",
+			self.production_plan_sub_assembly_item,
+			"wo_produced_qty",
+			produced_qty,
+		)
 
 	def update_ordered_qty(self):
 		if (
@@ -822,7 +937,7 @@ class WorkOrder(Document):
 			validate_end_of_life(self.production_item)
 
 	def validate_qty(self):
-		if not self.qty > 0:
+		if self.qty <= 0:
 			frappe.throw(_("Quantity to Manufacture must be greater than 0."))
 
 		if (
@@ -849,7 +964,7 @@ class WorkOrder(Document):
 
 			max_qty = qty_dict.get("planned_qty", 0) + allowance_qty - qty_dict.get("ordered_qty", 0)
 
-			if not max_qty > 0:
+			if max_qty <= 0:
 				frappe.throw(
 					_("Cannot produce more item for {0}").format(self.production_item), OverProductionError
 				)
@@ -860,7 +975,7 @@ class WorkOrder(Document):
 				)
 
 	def validate_transfer_against(self):
-		if not self.docstatus == 1:
+		if self.docstatus != 1:
 			# let user configure operations until they're ready to submit
 			return
 		if not self.operations:
@@ -873,7 +988,7 @@ class WorkOrder(Document):
 
 	def validate_operation_time(self):
 		for d in self.operations:
-			if not d.time_in_mins > 0:
+			if d.time_in_mins <= 0:
 				frappe.throw(_("Operation Time must be greater than 0 for Operation {0}").format(d.operation))
 
 	def update_required_items(self):
@@ -1403,16 +1518,16 @@ def get_serial_nos_for_work_order(work_order, production_item):
 
 
 def validate_operation_data(row):
-	if row.get("qty") <= 0:
+	if flt(row.get("qty")) <= 0:
 		frappe.throw(
 			_("Quantity to Manufacture can not be zero for the operation {0}").format(
 				frappe.bold(row.get("operation"))
 			)
 		)
 
-	if row.get("qty") > row.get("pending_qty"):
+	if flt(row.get("qty")) > flt(row.get("pending_qty")):
 		frappe.throw(
-			_("For operation {0}: Quantity ({1}) can not be greter than pending quantity({2})").format(
+			_("For operation {0}: Quantity ({1}) can not be greater than pending quantity({2})").format(
 				frappe.bold(row.get("operation")),
 				frappe.bold(row.get("qty")),
 				frappe.bold(row.get("pending_qty")),

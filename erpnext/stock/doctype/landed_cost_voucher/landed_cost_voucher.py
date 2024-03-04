@@ -15,6 +15,33 @@ from erpnext.stock.doctype.serial_no.serial_no import get_serial_nos
 
 
 class LandedCostVoucher(Document):
+	# begin: auto-generated types
+	# This code is auto-generated. Do not modify anything in this block.
+
+	from typing import TYPE_CHECKING
+
+	if TYPE_CHECKING:
+		from frappe.types import DF
+
+		from erpnext.stock.doctype.landed_cost_item.landed_cost_item import LandedCostItem
+		from erpnext.stock.doctype.landed_cost_purchase_receipt.landed_cost_purchase_receipt import (
+			LandedCostPurchaseReceipt,
+		)
+		from erpnext.stock.doctype.landed_cost_taxes_and_charges.landed_cost_taxes_and_charges import (
+			LandedCostTaxesandCharges,
+		)
+
+		amended_from: DF.Link | None
+		company: DF.Link
+		distribute_charges_based_on: DF.Literal["Qty", "Amount", "Distribute Manually"]
+		items: DF.Table[LandedCostItem]
+		naming_series: DF.Literal["MAT-LCV-.YYYY.-"]
+		posting_date: DF.Date
+		purchase_receipts: DF.Table[LandedCostPurchaseReceipt]
+		taxes: DF.Table[LandedCostTaxesandCharges]
+		total_taxes_and_charges: DF.Currency
+	# end: auto-generated types
+
 	@frappe.whitelist()
 	def get_items_from_purchase_receipts(self):
 		self.set("items", [])
@@ -38,12 +65,33 @@ class LandedCostVoucher(Document):
 	def validate(self):
 		self.check_mandatory()
 		self.validate_receipt_documents()
+		self.validate_line_items()
 		init_landed_taxes_and_totals(self)
 		self.set_total_taxes_and_charges()
 		if not self.get("items"):
 			self.get_items_from_purchase_receipts()
 
 		self.set_applicable_charges_on_item()
+
+	def validate_line_items(self):
+		for d in self.get("items"):
+			if (
+				d.docstatus == 0
+				and d.purchase_receipt_item
+				and not frappe.db.exists(
+					d.receipt_document_type + " Item",
+					{"name": d.purchase_receipt_item, "parent": d.receipt_document},
+				)
+			):
+				frappe.throw(
+					_("Row {0}: {2} Item {1} does not exist in {2} {3}").format(
+						d.idx,
+						frappe.bold(d.purchase_receipt_item),
+						d.receipt_document_type,
+						frappe.bold(d.receipt_document),
+					),
+					title=_("Incorrect Reference Document (Purchase Receipt Item)"),
+				)
 
 	def check_mandatory(self):
 		if not self.get("purchase_receipts"):
@@ -122,6 +170,13 @@ class LandedCostVoucher(Document):
 				self.get("items")[item_count - 1].applicable_charges += diff
 
 	def validate_applicable_charges_for_item(self):
+		if self.distribute_charges_based_on == "Distribute Manually" and len(self.taxes) > 1:
+			frappe.throw(
+				_(
+					"Please keep one Applicable Charges, when 'Distribute Charges Based On' is 'Distribute Manually'. For more charges, please create another Landed Cost Voucher."
+				)
+			)
+
 		based_on = self.distribute_charges_based_on.lower()
 
 		if based_on != "distribute manually":
@@ -167,7 +222,8 @@ class LandedCostVoucher(Document):
 		for d in self.get("purchase_receipts"):
 			doc = frappe.get_doc(d.receipt_document_type, d.receipt_document)
 			# check if there are {qty} assets created and linked to this receipt document
-			self.validate_asset_qty_and_status(d.receipt_document_type, doc)
+			if self.docstatus != 2:
+				self.validate_asset_qty_and_status(d.receipt_document_type, doc)
 
 			# set landed cost voucher amount in pr item
 			doc.set_landed_cost_voucher_amount()
@@ -205,23 +261,27 @@ class LandedCostVoucher(Document):
 				)
 				docs = frappe.db.get_all(
 					"Asset",
-					filters={receipt_document_type: item.receipt_document, "item_code": item.item_code},
+					filters={
+						receipt_document_type: item.receipt_document,
+						"item_code": item.item_code,
+						"docstatus": ["!=", 2],
+					},
 					fields=["name", "docstatus"],
 				)
-				if not docs or len(docs) != item.qty:
+				if not docs or len(docs) < item.qty:
 					frappe.throw(
 						_(
-							"There are not enough asset created or linked to {0}. Please create or link {1} Assets with respective document."
-						).format(item.receipt_document, item.qty)
+							"There are only {0} asset created or linked to {1}. Please create or link {2} Assets with respective document."
+						).format(len(docs), item.receipt_document, item.qty)
 					)
 				if docs:
 					for d in docs:
 						if d.docstatus == 1:
 							frappe.throw(
 								_(
-									"{2} <b>{0}</b> has submitted Assets. Remove Item <b>{1}</b> from table to continue."
+									"{0} <b>{1}</b> has submitted Assets. Remove Item <b>{2}</b> from table to continue."
 								).format(
-									item.receipt_document, item.item_code, item.receipt_document_type
+									item.receipt_document_type, item.receipt_document, item.item_code
 								)
 							)
 

@@ -116,7 +116,7 @@ def get_data(filters):
 		max_rgt,
 		filters,
 		gl_entries_by_account,
-		ignore_closing_entries=not flt(filters.with_period_closing_entry),
+		ignore_closing_entries=not flt(filters.with_period_closing_entry_for_current_period),
 		ignore_opening_entries=True,
 	)
 
@@ -249,7 +249,7 @@ def get_opening_balance(
 	):
 		opening_balance = opening_balance.where(closing_balance.posting_date >= filters.year_start_date)
 
-	if not flt(filters.with_period_closing_entry):
+	if not flt(filters.with_period_closing_entry_for_opening):
 		if doctype == "Account Closing Balance":
 			opening_balance = opening_balance.where(closing_balance.is_period_closing_voucher_entry == 0)
 		else:
@@ -275,9 +275,7 @@ def get_opening_balance(
 		company_fb = frappe.get_cached_value("Company", filters.company, "default_finance_book")
 
 		if filters.finance_book and company_fb and cstr(filters.finance_book) != cstr(company_fb):
-			frappe.throw(
-				_("To use a different finance book, please uncheck 'Include Default Book Entries'")
-			)
+			frappe.throw(_("To use a different finance book, please uncheck 'Include Default FB Entries'"))
 
 		opening_balance = opening_balance.where(
 			(closing_balance.finance_book.isin([cstr(filters.finance_book), cstr(company_fb), ""]))

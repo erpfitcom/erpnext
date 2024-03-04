@@ -12,7 +12,7 @@ from erpnext.controllers.sales_and_purchase_return import get_rate_for_return
 from erpnext.controllers.stock_controller import StockController
 from erpnext.stock.doctype.item.item import set_item_default
 from erpnext.stock.get_item_details import get_bin_details, get_conversion_factor
-from erpnext.stock.utils import get_incoming_rate
+from erpnext.stock.utils import get_incoming_rate, get_valuation_method
 
 
 class SellingController(StockController):
@@ -28,7 +28,8 @@ class SellingController(StockController):
 	def validate(self):
 		super(SellingController, self).validate()
 		self.validate_items()
-		self.validate_max_discount()
+		if not self.get("is_debit_note"):
+			self.validate_max_discount()
 		self.validate_selling_price()
 		self.set_qty_as_per_stock_uom()
 		self.set_po_nos(for_validate=True)
@@ -295,9 +296,6 @@ class SellingController(StockController):
 	def get_item_list(self):
 		il = []
 		for d in self.get("items"):
-			if d.qty is None:
-				frappe.throw(_("Row {0}: Qty is mandatory").format(d.idx))
-
 			if self.has_product_bundle(d.item_code):
 				for p in self.get("packed_items"):
 					if p.parent_detail_docname == d.name and p.parent_item == d.item_code:
@@ -308,6 +306,8 @@ class SellingController(StockController):
 									"warehouse": p.warehouse or d.warehouse,
 									"item_code": p.item_code,
 									"qty": flt(p.qty),
+									"serial_no": p.serial_no if self.docstatus == 2 else None,
+									"batch_no": p.batch_no if self.docstatus == 2 else None,
 									"uom": p.uom,
 									"serial_and_batch_bundle": p.serial_and_batch_bundle
 									or get_serial_and_batch_bundle(p, self),
@@ -330,6 +330,8 @@ class SellingController(StockController):
 							"warehouse": d.warehouse,
 							"item_code": d.item_code,
 							"qty": d.stock_qty,
+							"serial_no": d.serial_no if self.docstatus == 2 else None,
+							"batch_no": d.batch_no if self.docstatus == 2 else None,
 							"uom": d.uom,
 							"stock_uom": d.stock_uom,
 							"conversion_factor": d.conversion_factor,
@@ -350,11 +352,12 @@ class SellingController(StockController):
 		return il
 
 	def has_product_bundle(self, item_code):
-		return frappe.db.sql(
-			"""select name from `tabProduct Bundle`
-			where new_item_code=%s and docstatus != 2""",
-			item_code,
-		)
+		product_bundle = frappe.qb.DocType("Product Bundle")
+		return (
+			frappe.qb.from_(product_bundle)
+			.select(product_bundle.name)
+			.where((product_bundle.new_item_code == item_code) & (product_bundle.disabled == 0))
+		).run()
 
 	def get_already_delivered_qty(self, current_docname, so, so_detail):
 		delivered_via_dn = frappe.db.sql(
@@ -427,11 +430,18 @@ class SellingController(StockController):
 
 		items = self.get("items") + (self.get("packed_items") or [])
 		for d in items:
-			if not self.get("return_against"):
+			if not frappe.get_cached_value("Item", d.item_code, "is_stock_item"):
+				continue
+
+			if not self.get("return_against") or (
+				get_valuation_method(d.item_code) == "Moving Average" and self.get("is_return")
+			):
 				# Get incoming rate based on original item cost based on valuation method
 				qty = flt(d.get("stock_qty") or d.get("actual_qty"))
 
-				if not (self.get("is_return") and d.incoming_rate):
+				if not d.incoming_rate or (
+					get_valuation_method(d.item_code) == "Moving Average" and self.get("is_return")
+				):
 					d.incoming_rate = get_incoming_rate(
 						{
 							"item_code": d.item_code,
@@ -443,6 +453,7 @@ class SellingController(StockController):
 							"company": self.company,
 							"voucher_type": self.doctype,
 							"voucher_no": self.name,
+							"voucher_detail_no": d.name,
 							"allow_zero_valuation": d.get("allow_zero_valuation"),
 						},
 						raise_error_if_no_rate=False,
@@ -589,7 +600,7 @@ class SellingController(StockController):
 		if self.doctype in ["Sales Order", "Quotation"]:
 			for item in self.items:
 				item.gross_profit = flt(
-					((item.base_rate - item.valuation_rate) * item.stock_qty), self.precision("amount", item)
+					((item.base_rate - flt(item.valuation_rate)) * item.stock_qty), self.precision("amount", item)
 				)
 
 	def set_customer_address(self):
@@ -692,6 +703,9 @@ def set_default_income_account_for_item(obj):
 
 def get_serial_and_batch_bundle(child, parent):
 	from erpnext.stock.serial_batch_bundle import SerialBatchCreation
+
+	if child.get("use_serial_batch_fields"):
+		return
 
 	if not frappe.db.get_single_value(
 		"Stock Settings", "auto_create_serial_and_batch_bundle_for_outward"

@@ -8,6 +8,7 @@ import frappe
 from frappe import _, throw
 from frappe.model import child_table_fields, default_fields
 from frappe.model.meta import get_field_precision
+from frappe.model.utils import get_fetch_values
 from frappe.query_builder.functions import IfNull, Sum
 from frappe.utils import add_days, add_months, cint, cstr, flt, getdate
 
@@ -85,7 +86,8 @@ def get_item_details(args, doc=None, for_validate=False, overwrite_warehouse=Tru
 
 	get_party_item_code(args, item, out)
 
-	set_valuation_rate(out, args)
+	if args.get("doctype") in ["Sales Order", "Quotation"]:
+		set_valuation_rate(out, args)
 
 	update_party_blanket_order(args, out)
 
@@ -149,7 +151,7 @@ def remove_standard_fields(details):
 
 
 def set_valuation_rate(out, args):
-	if frappe.db.exists("Product Bundle", args.item_code, cache=True):
+	if frappe.db.exists("Product Bundle", {"name": args.item_code, "disabled": 0}, cache=True):
 		valuation_rate = 0.0
 		bundled_items = frappe.get_doc("Product Bundle", args.item_code)
 
@@ -268,7 +270,9 @@ def get_basic_details(args, item, overwrite_warehouse=True):
 	if not item:
 		item = frappe.get_doc("Item", args.get("item_code"))
 
-	if item.variant_of and not item.taxes:
+	if (
+		item.variant_of and not item.taxes and frappe.db.exists("Item Tax", {"parent": item.variant_of})
+	):
 		item.update_template_tables()
 
 	item_defaults = get_item_defaults(item.name, args.company)
@@ -357,7 +361,6 @@ def get_basic_details(args, item, overwrite_warehouse=True):
 			"net_amount": 0.0,
 			"discount_percentage": 0.0,
 			"discount_amount": flt(args.discount_amount) or 0.0,
-			"supplier": get_default_supplier(args, item_defaults, item_group_defaults, brand_defaults),
 			"update_stock": args.get("update_stock")
 			if args.get("doctype") in ["Sales Invoice", "Purchase Invoice"]
 			else 0,
@@ -376,6 +379,10 @@ def get_basic_details(args, item, overwrite_warehouse=True):
 			"grant_commission": item.get("grant_commission"),
 		}
 	)
+
+	default_supplier = get_default_supplier(args, item_defaults, item_group_defaults, brand_defaults)
+	if default_supplier:
+		out.supplier = default_supplier
 
 	if item.get("enable_deferred_revenue") or item.get("enable_deferred_expense"):
 		out.update(calculate_service_end_date(args, item))
@@ -493,8 +500,8 @@ def update_barcode_value(out):
 
 
 def get_barcode_data(items_list):
-	# get itemwise batch no data
-	# exmaple: {'LED-GRE': [Batch001, Batch002]}
+	# get item-wise batch no data
+	# example: {'LED-GRE': [Batch001, Batch002]}
 	# where LED-GRE is item code, SN0001 is serial no and Pune is warehouse
 
 	itemwise_barcode = {}
@@ -539,7 +546,7 @@ def get_item_tax_info(company, tax_category, item_codes, item_rates=None, item_t
 		args = {
 			"company": company,
 			"tax_category": tax_category,
-			"net_rate": item_rates.get(item_code[1]),
+			"base_net_rate": item_rates.get(item_code[1]),
 		}
 
 		if item_tax_templates:
@@ -570,6 +577,9 @@ def get_item_tax_template(args, item, out):
 			item_group_doc = frappe.get_cached_doc("Item Group", item_group)
 			item_tax_template = _get_item_tax_template(args, item_group_doc.taxes, out)
 			item_group = item_group_doc.parent_item_group
+
+	if args.get("child_doctype") and item_tax_template:
+		out.update(get_fetch_values(args.get("child_doctype"), "item_tax_template", item_tax_template))
 
 
 def _get_item_tax_template(args, taxes, out=None, for_validate=False):
@@ -610,7 +620,6 @@ def _get_item_tax_template(args, taxes, out=None, for_validate=False):
 
 	# all templates have validity and no template is valid
 	if not taxes_with_validity and (not taxes_with_no_validity):
-		out["item_tax_template"] = ""
 		return None
 
 	# do not change if already a valid template
@@ -629,7 +638,7 @@ def is_within_valid_range(args, tax):
 	if not flt(tax.maximum_net_rate):
 		# No range specified, just ignore
 		return True
-	elif flt(tax.minimum_net_rate) <= flt(args.get("net_rate")) <= flt(tax.maximum_net_rate):
+	elif flt(tax.minimum_net_rate) <= flt(args.get("base_net_rate")) <= flt(tax.maximum_net_rate):
 		return True
 
 	return False
