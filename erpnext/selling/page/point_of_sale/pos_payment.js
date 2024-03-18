@@ -205,15 +205,11 @@ erpnext.PointOfSale.Payment = class {
 			const discount_amount = doc.discount_amount;
 			const items = doc.items;
 
-<<<<<<< HEAD
-			if (!items.length || (paid_amount == 0 && doc.additional_discount_percentage != 100 && discount_amount == 0)) {
-				const message = items.length ? __("You cannot submit the order without payment.") : __("You cannot submit empty order.");
-=======
 			if (!items.length || (paid_amount == 0 && doc.additional_discount_percentage != 100)) {
 				const message = items.length
 					? __("You cannot submit the order without payment.")
 					: __("You cannot submit empty order.");
->>>>>>> upstream/develop
+
 				frappe.show_alert({ message, indicator: "orange" });
 				frappe.utils.play_sound("error");
 				return;
