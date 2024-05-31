@@ -423,7 +423,7 @@ erpnext.PointOfSale.Payment = class {
 						}
 					},
 				},
-				parent: this.$payment_modes.find(`.${mode}.mode-of-payment-control`),
+				parent: this.$payment_modes.find(`.${$.escapeSelector(mode)}.mode-of-payment-control`),
 				render_input: true,
 			});
 			this[`${mode}_control`].toggle_label(false);
