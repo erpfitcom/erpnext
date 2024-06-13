@@ -36,6 +36,7 @@ from erpnext.stock.utils import (
 	get_incoming_outgoing_rate_for_cancel,
 	get_incoming_rate,
 	get_or_make_bin,
+	get_serial_nos_data,
 	get_stock_balance,
 	get_valuation_method,
 )
@@ -220,6 +221,7 @@ def make_entry(args, allow_negative_stock=False, via_landed_cost_voucher=False):
 	sle.flags.ignore_permissions = 1
 	sle.allow_negative_stock = allow_negative_stock
 	sle.via_landed_cost_voucher = via_landed_cost_voucher
+	sle.set_posting_datetime()
 	sle.submit()
 
 	# Added to handle the case when the stock ledger entry is created from the repostig
@@ -307,7 +309,15 @@ def get_reposting_data(file_path) -> dict:
 
 	attached_file = frappe.get_doc("File", file_name)
 
-	data = gzip.decompress(attached_file.get_content())
+	content = attached_file.get_content()
+	if isinstance(content, str):
+		content = content.encode("utf-8")
+
+	try:
+		data = gzip.decompress(content)
+	except Exception:
+		return frappe._dict()
+
 	if data := json.loads(data.decode("utf-8")):
 		data = data
 
@@ -802,9 +812,10 @@ class update_entries_after:
 			self.update_outgoing_rate_on_transaction(sle)
 
 	def get_serialized_values(self, sle):
+		from erpnext.stock.serial_batch_bundle import SerialNoValuation
+
 		incoming_rate = flt(sle.incoming_rate)
 		actual_qty = flt(sle.actual_qty)
-		serial_nos = cstr(sle.serial_no).split("\n")
 
 		if incoming_rate < 0:
 			# wrong incoming rate
@@ -817,8 +828,16 @@ class update_entries_after:
 			# In case of delivery/stock issue, get average purchase rate
 			# of serial nos of current entry
 			if not sle.is_cancelled:
-				outgoing_value = self.get_incoming_value_for_serial_nos(sle, serial_nos)
-				stock_value_change = -1 * outgoing_value
+				new_sle = copy.deepcopy(sle)
+				new_sle.qty = new_sle.actual_qty
+				new_sle.serial_nos = get_serial_nos_data(new_sle.get("serial_no"))
+
+				sn_obj = SerialNoValuation(
+					sle=new_sle, warehouse=new_sle.get("warehouse"), item_code=new_sle.get("item_code")
+				)
+
+				outgoing_value = sn_obj.get_incoming_rate()
+				stock_value_change = actual_qty * outgoing_value
 			else:
 				stock_value_change = actual_qty * sle.outgoing_rate
 
@@ -840,7 +859,7 @@ class update_entries_after:
 
 	def reset_actual_qty_for_stock_reco(self, sle):
 		doc = frappe.get_cached_doc("Stock Reconciliation", sle.voucher_no)
-		doc.recalculate_current_qty(sle.voucher_detail_no, sle.creation, sle.actual_qty > 0)
+		doc.recalculate_current_qty(sle.voucher_detail_no)
 
 		if sle.actual_qty < 0:
 			sle.actual_qty = (
@@ -1263,6 +1282,8 @@ class update_entries_after:
 			self.wh_data.valuation_rate = self.wh_data.stock_value / self.wh_data.qty_after_transaction
 
 	def update_batched_values(self, sle):
+		from erpnext.stock.serial_batch_bundle import BatchNoValuation
+
 		incoming_rate = flt(sle.incoming_rate)
 		actual_qty = flt(sle.actual_qty)
 
@@ -1273,14 +1294,17 @@ class update_entries_after:
 		if actual_qty > 0:
 			stock_value_difference = incoming_rate * actual_qty
 		else:
-			outgoing_rate = get_batch_incoming_rate(
-				item_code=sle.item_code,
-				warehouse=sle.warehouse,
-				batch_no=sle.batch_no,
-				posting_date=sle.posting_date,
-				posting_time=sle.posting_time,
-				creation=sle.creation,
+			new_sle = copy.deepcopy(sle)
+
+			new_sle.qty = new_sle.actual_qty
+			new_sle.batch_nos = frappe._dict({new_sle.batch_no: new_sle})
+			batch_obj = BatchNoValuation(
+				sle=new_sle,
+				warehouse=new_sle.get("warehouse"),
+				item_code=new_sle.get("item_code"),
 			)
+
+			outgoing_rate = batch_obj.get_incoming_rate()
 
 			if outgoing_rate is None:
 				# This can *only* happen if qty available for the batch is zero.
@@ -1288,6 +1312,7 @@ class update_entries_after:
 				# future entries will correct the overall accounting as each
 				# batch individually uses moving average rates.
 				outgoing_rate = self.get_fallback_rate(sle)
+
 			stock_value_difference = outgoing_rate * actual_qty
 
 		self.wh_data.stock_value = round_off_if_near_zero(self.wh_data.stock_value + stock_value_difference)
@@ -1427,7 +1452,11 @@ def get_previous_sle_of_current_voucher(args, operator="<", exclude_current_vouc
 		order by posting_datetime desc, creation desc
 		limit 1
 		for update""",
-		args,
+		{
+			"item_code": args.get("item_code"),
+			"warehouse": args.get("warehouse"),
+			"posting_datetime": args.get("posting_datetime"),
+		},
 		as_dict=1,
 	)
 
@@ -1728,6 +1757,10 @@ def get_stock_reco_qty_shift(args):
 			stock_reco_qty_shift = flt(args.qty_after_transaction) - flt(last_balance)
 		else:
 			stock_reco_qty_shift = flt(args.actual_qty)
+
+	elif args.get("serial_and_batch_bundle"):
+		stock_reco_qty_shift = flt(args.actual_qty)
+
 	else:
 		# reco is being submitted
 		last_balance = get_previous_sle_of_current_voucher(args, "<=", exclude_current_voucher=True).get(
@@ -1799,6 +1832,15 @@ def get_datetime_limit_condition(detail):
 def validate_negative_qty_in_future_sle(args, allow_negative_stock=False):
 	if allow_negative_stock or is_negative_stock_allowed(item_code=args.item_code):
 		return
+
+	if (
+		args.voucher_type == "Stock Reconciliation"
+		and args.actual_qty < 0
+		and args.get("serial_and_batch_bundle")
+		and frappe.db.get_value("Stock Reconciliation Item", args.voucher_detail_no, "qty") > 0
+	):
+		return
+
 	if args.actual_qty >= 0 and args.voucher_type != "Stock Reconciliation":
 		return
 
