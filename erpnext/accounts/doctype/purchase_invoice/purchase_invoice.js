@@ -136,7 +136,11 @@ erpnext.accounts.PurchaseInvoice = class PurchaseInvoice extends erpnext.buying.
 
 		if (!doc.is_return && doc.docstatus == 1) {
 			if (doc.outstanding_amount >= 0 || Math.abs(flt(doc.outstanding_amount)) < flt(doc.grand_total)) {
-				this.frm.add_custom_button(__("Return / Debit Note"), this.make_debit_note, __("Create"));
+				this.frm.add_custom_button(
+					__("Return / Debit Note"),
+					this.make_debit_note.bind(this),
+					__("Create")
+				);
 			}
 		}
 
@@ -485,10 +489,12 @@ function hide_fields(doc) {
 
 	var item_fields_stock = ["warehouse_section", "received_qty", "rejected_qty"];
 
-	cur_frm.fields_dict["items"].grid.set_column_disp(
-		item_fields_stock,
-		cint(doc.update_stock) == 1 || cint(doc.is_return) == 1 ? true : false
-	);
+	if (cur_frm.fields_dict["items"]) {
+		cur_frm.fields_dict["items"].grid.set_column_disp(
+			item_fields_stock,
+			cint(doc.update_stock) == 1 || cint(doc.is_return) == 1 ? true : false
+		);
+	}
 
 	cur_frm.refresh_fields();
 }
@@ -675,7 +681,7 @@ frappe.ui.form.on("Purchase Invoice", {
 			if (frm.doc.supplier) {
 				frm.doc.apply_tds = frm.doc.__onload.supplier_tds ? 1 : 0;
 			}
-			if (!frm.doc.__onload.supplier_tds) {
+			if (!frm.doc.__onload.enable_apply_tds) {
 				frm.set_df_property("apply_tds", "read_only", 1);
 			}
 		}

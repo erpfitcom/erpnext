@@ -778,6 +778,9 @@ class AccountsController(TransactionBase):
 								# reset pricing rule fields if pricing_rule_removed
 								item.set(fieldname, value)
 
+							elif fieldname == "expense_account" and not item.get("expense_account"):
+								item.expense_account = value
+
 					if self.doctype in ["Purchase Invoice", "Sales Invoice"] and item.meta.get_field(
 						"is_fixed_asset"
 					):
@@ -1032,10 +1035,10 @@ class AccountsController(TransactionBase):
 				"transaction_currency": self.get("currency") or self.company_currency,
 				"transaction_exchange_rate": self.get("conversion_rate", 1),
 				"debit_in_transaction_currency": self.get_value_in_transaction_currency(
-					account_currency, args, "debit"
+					account_currency, gl_dict, "debit"
 				),
 				"credit_in_transaction_currency": self.get_value_in_transaction_currency(
-					account_currency, args, "credit"
+					account_currency, gl_dict, "credit"
 				),
 			}
 		)
@@ -1067,11 +1070,11 @@ class AccountsController(TransactionBase):
 			return "Debit Note"
 		return self.doctype
 
-	def get_value_in_transaction_currency(self, account_currency, args, field):
+	def get_value_in_transaction_currency(self, account_currency, gl_dict, field):
 		if account_currency == self.get("currency"):
-			return args.get(field + "_in_account_currency")
+			return gl_dict.get(field + "_in_account_currency")
 		else:
-			return flt(args.get(field, 0) / self.get("conversion_rate", 1))
+			return flt(gl_dict.get(field, 0) / self.get("conversion_rate", 1))
 
 	def validate_zero_qty_for_return_invoices_with_stock(self):
 		rows = []
@@ -1439,7 +1442,8 @@ class AccountsController(TransactionBase):
 
 						dr_or_cr = "debit" if d.exchange_gain_loss > 0 else "credit"
 
-						if d.reference_doctype == "Purchase Invoice":
+						# Inverse debit/credit for payable accounts
+						if self.is_payable_account(d.reference_doctype, party_account):
 							dr_or_cr = "debit" if dr_or_cr == "credit" else "credit"
 
 						reverse_dr_or_cr = "debit" if dr_or_cr == "credit" else "credit"
@@ -1472,6 +1476,14 @@ class AccountsController(TransactionBase):
 								get_link_to_form("Journal Entry", je)
 							)
 						)
+
+	def is_payable_account(self, reference_doctype, account):
+		if reference_doctype == "Purchase Invoice" or (
+			reference_doctype == "Journal Entry"
+			and frappe.get_cached_value("Account", account, "account_type") == "Payable"
+		):
+			return True
+		return False
 
 	def update_against_document_in_jv(self):
 		"""
@@ -1930,7 +1942,7 @@ class AccountsController(TransactionBase):
 	def set_advance_payment_status(self):
 		new_status = None
 
-		stati = frappe.get_list(
+		stati = frappe.get_all(
 			"Payment Request",
 			{
 				"reference_doctype": self.doctype,
@@ -2199,10 +2211,10 @@ class AccountsController(TransactionBase):
 			for d in self.get("payment_schedule"):
 				if d.invoice_portion:
 					d.payment_amount = flt(
-						grand_total * flt(d.invoice_portion / 100), d.precision("payment_amount")
+						grand_total * flt(d.invoice_portion) / 100, d.precision("payment_amount")
 					)
 					d.base_payment_amount = flt(
-						base_grand_total * flt(d.invoice_portion / 100), d.precision("base_payment_amount")
+						base_grand_total * flt(d.invoice_portion) / 100, d.precision("base_payment_amount")
 					)
 					d.outstanding = d.payment_amount
 				elif not d.invoice_portion:

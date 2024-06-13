@@ -263,9 +263,14 @@ erpnext.TransactionController = class TransactionController extends erpnext.taxe
 	}
 
 	toggle_enable_for_stock_uom(field) {
-		frappe.db.get_single_value('Stock Settings', field)
-		.then(value => {
-			this.frm.fields_dict["items"].grid.toggle_enable("stock_qty", value);
+		frappe.call({
+			method: 'erpnext.stock.doctype.stock_settings.stock_settings.get_enable_stock_uom_editing',
+			callback: (r) => {
+				if (r.message) {
+					var value = r.message[field];
+					this.frm.fields_dict["items"].grid.toggle_enable("stock_qty", value);
+				}
+			}
 		});
 	}
 
@@ -331,7 +336,7 @@ erpnext.TransactionController = class TransactionController extends erpnext.taxe
 		}
 
 		const me = this;
-		if (!this.frm.is_new() && this.frm.doc.docstatus === 0) {
+		if (!this.frm.is_new() && this.frm.doc.docstatus === 0 && frappe.model.can_create("Quality Inspection")) {
 			this.frm.add_custom_button(__("Quality Inspection(s)"), () => {
 				me.make_quality_inspection();
 			}, __("Create"));
@@ -1264,8 +1269,8 @@ erpnext.TransactionController = class TransactionController extends erpnext.taxe
 	}
 
 	qty(doc, cdt, cdn) {
-		if (!this.frm.doc.__onload?.load_after_mapping) {
-			let item = frappe.get_doc(cdt, cdn);
+		let item = frappe.get_doc(cdt, cdn);
+		if (!this.is_a_mapped_document(item)) {
 			// item.pricing_rules = ''
 			frappe.run_serially([
 				() => this.remove_pricing_rule_for_item(item),
@@ -2258,6 +2263,8 @@ erpnext.TransactionController = class TransactionController extends erpnext.taxe
 		];
 
 		const me = this;
+		const inspection_type = ["Purchase Receipt", "Purchase Invoice", "Subcontracting Receipt"].includes(this.frm.doc.doctype)
+			? "Incoming" : "Outgoing";
 		const dialog = new frappe.ui.Dialog({
 			title: __("Select Items for Quality Inspection"),
 			size: "extra-large",
@@ -2269,7 +2276,8 @@ erpnext.TransactionController = class TransactionController extends erpnext.taxe
 					args: {
 						doctype: me.frm.doc.doctype,
 						docname: me.frm.doc.name,
-						items: data.items
+						items: data.items,
+						inspection_type: inspection_type
 					},
 					freeze: true,
 					callback: function (r) {
@@ -2360,6 +2368,9 @@ erpnext.TransactionController = class TransactionController extends erpnext.taxe
 
 			if (doc.is_return) {
 				filters["is_return"] = 1;
+				if (["Sales Invoice", "Delivery Note"].includes(doc.doctype)) {
+					filters["is_inward"] = 1;
+				}
 			}
 
 			if (item.warehouse) filters["warehouse"] = item.warehouse;

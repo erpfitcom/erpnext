@@ -84,14 +84,6 @@ class StockSettings(Document):
 			make_mandatory=0,
 		)
 
-		stock_frozen_limit = 356
-		submitted_stock_frozen = self.stock_frozen_upto_days or 0
-		if submitted_stock_frozen > stock_frozen_limit:
-			self.stock_frozen_upto_days = stock_frozen_limit
-			frappe.msgprint(
-				_("`Freeze Stocks Older Than` should be smaller than %d days.") % stock_frozen_limit
-			)
-
 		# show/hide barcode field
 		for name in ["barcode", "barcodes", "scan_barcode"]:
 			frappe.make_property_setter(
@@ -308,3 +300,13 @@ def clean_all_descriptions():
 			clean_description = clean_html(item.description)
 		if item.description != clean_description:
 			frappe.db.set_value("Item", item.name, "description", clean_description)
+
+
+@frappe.whitelist()
+def get_enable_stock_uom_editing():
+	return frappe.get_cached_value(
+		"Stock Settings",
+		None,
+		["allow_to_edit_stock_uom_qty_for_sales", "allow_to_edit_stock_uom_qty_for_purchase"],
+		as_dict=1,
+	)

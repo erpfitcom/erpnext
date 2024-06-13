@@ -58,13 +58,9 @@ class SalesInvoice(SellingController):
 
 		from erpnext.accounts.doctype.payment_schedule.payment_schedule import PaymentSchedule
 		from erpnext.accounts.doctype.pricing_rule_detail.pricing_rule_detail import PricingRuleDetail
-		from erpnext.accounts.doctype.sales_invoice_advance.sales_invoice_advance import (
-			SalesInvoiceAdvance,
-		)
+		from erpnext.accounts.doctype.sales_invoice_advance.sales_invoice_advance import SalesInvoiceAdvance
 		from erpnext.accounts.doctype.sales_invoice_item.sales_invoice_item import SalesInvoiceItem
-		from erpnext.accounts.doctype.sales_invoice_payment.sales_invoice_payment import (
-			SalesInvoicePayment,
-		)
+		from erpnext.accounts.doctype.sales_invoice_payment.sales_invoice_payment import SalesInvoicePayment
 		from erpnext.accounts.doctype.sales_invoice_timesheet.sales_invoice_timesheet import (
 			SalesInvoiceTimesheet,
 		)
@@ -140,7 +136,7 @@ class SalesInvoice(SellingController):
 		is_pos: DF.Check
 		is_return: DF.Check
 		items: DF.Table[SalesInvoiceItem]
-		language: DF.Data | None
+		language: DF.Link | None
 		letter_head: DF.Link | None
 		loyalty_amount: DF.Currency
 		loyalty_points: DF.Int
@@ -397,6 +393,9 @@ class SalesInvoice(SellingController):
 			validate_account_head(item.idx, item.income_account, self.company, "Income")
 
 	def set_tax_withholding(self):
+		if self.get("is_opening") == "Yes":
+			return
+
 		tax_withholding_details = get_party_tax_withholding_details(self)
 
 		if not tax_withholding_details:
@@ -456,6 +455,7 @@ class SalesInvoice(SellingController):
 				if not self.get(table_name):
 					continue
 
+				self.make_bundle_for_sales_purchase_return(table_name)
 				self.make_bundle_using_old_serial_batch_fields(table_name)
 			self.update_stock_ledger()
 
@@ -2643,6 +2643,10 @@ def create_dunning(source_name, target_doc=None, ignore_permissions=False):
 				target.body_text = letter_text.get("body_text")
 				target.closing_text = letter_text.get("closing_text")
 				target.language = letter_text.get("language")
+
+		# update outstanding
+		if source.payment_schedule and len(source.payment_schedule) == 1:
+			target.overdue_payments[0].outstanding = source.get("outstanding_amount")
 
 		target.validate()
 
