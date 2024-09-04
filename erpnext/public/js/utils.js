@@ -20,7 +20,11 @@ $.extend(erpnext, {
 	},
 
 	toggle_naming_series: function () {
-		if (cur_frm && cur_frm.fields_dict.naming_series) {
+		if (
+			cur_frm &&
+			cur_frm.fields_dict.naming_series &&
+			cur_frm.meta.naming_rule == 'By "Naming Series" field'
+		) {
 			cur_frm.toggle_display("naming_series", cur_frm.doc.__islocal ? true : false);
 		}
 	},
@@ -934,7 +938,13 @@ erpnext.utils.map_current_doc = function (opts) {
 					frappe.msgprint(__("Please select {0}", [opts.source_doctype]));
 					return;
 				}
-				opts.source_name = values;
+
+				if (values.constructor === Array) {
+					opts.source_name = [...new Set(values)];
+				} else {
+					opts.source_name = values;
+				}
+
 				if (
 					opts.allow_child_item_selection ||
 					["Purchase Receipt", "Delivery Note"].includes(opts.source_doctype)
