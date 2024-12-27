@@ -119,13 +119,13 @@ class Asset(AccountsController):
 	# end: auto-generated types
 
 	def validate(self):
+		self.validate_precision()
 		self.validate_asset_values()
 		self.validate_asset_and_reference()
 		self.validate_item()
 		self.validate_cost_center()
 		self.set_missing_values()
 		self.validate_gross_and_purchase_amount()
-		self.validate_expected_value_after_useful_life()
 		self.validate_finance_books()
 
 		if not self.split_from:
@@ -146,6 +146,7 @@ class Asset(AccountsController):
 								"Asset Depreciation Schedules created:<br>{0}<br><br>Please check, edit if needed, and submit the Asset."
 							).format(asset_depr_schedules_links)
 						)
+		self.validate_expected_value_after_useful_life()
 		self.set_total_booked_depreciations()
 		self.total_asset_cost = self.gross_purchase_amount
 		self.status = self.get_status()
@@ -307,6 +308,17 @@ class Asset(AccountsController):
 					title=_("Missing Finance Book"),
 				)
 
+	def validate_precision(self):
+		if self.gross_purchase_amount:
+			self.gross_purchase_amount = flt(
+				self.gross_purchase_amount, self.precision("gross_purchase_amount")
+			)
+
+		if self.opening_accumulated_depreciation:
+			self.opening_accumulated_depreciation = flt(
+				self.opening_accumulated_depreciation, self.precision("opening_accumulated_depreciation")
+			)
+
 	def validate_asset_values(self):
 		if not self.asset_category:
 			self.asset_category = frappe.get_cached_value("Item", self.item_code, "asset_category")
@@ -401,6 +413,9 @@ class Asset(AccountsController):
 			)
 
 	def validate_asset_finance_books(self, row):
+		row.expected_value_after_useful_life = flt(
+			row.expected_value_after_useful_life, self.precision("gross_purchase_amount")
+		)
 		if flt(row.expected_value_after_useful_life) >= flt(self.gross_purchase_amount):
 			frappe.throw(
 				_("Row {0}: Expected Value After Useful Life must be less than Gross Purchase Amount").format(
@@ -421,7 +436,10 @@ class Asset(AccountsController):
 			self.opening_accumulated_depreciation = 0
 			self.opening_number_of_booked_depreciations = 0
 		else:
-			depreciable_amount = flt(self.gross_purchase_amount) - flt(row.expected_value_after_useful_life)
+			depreciable_amount = flt(
+				flt(self.gross_purchase_amount) - flt(row.expected_value_after_useful_life),
+				self.precision("gross_purchase_amount"),
+			)
 			if flt(self.opening_accumulated_depreciation) > depreciable_amount:
 				frappe.throw(
 					_("Opening Accumulated Depreciation must be less than or equal to {0}").format(
@@ -473,7 +491,6 @@ class Asset(AccountsController):
 	def validate_expected_value_after_useful_life(self):
 		for row in self.get("finance_books"):
 			depr_schedule = get_depr_schedule(self.name, "Draft", row.finance_book)
-
 			if not depr_schedule:
 				continue
 
@@ -624,6 +641,9 @@ class Asset(AccountsController):
 		return records
 
 	def validate_make_gl_entry(self):
+		if self.is_composite_asset:
+			return True
+
 		purchase_document = self.get_purchase_document()
 		if not purchase_document:
 			return False
@@ -783,19 +803,27 @@ class Asset(AccountsController):
 			):
 				return args.get("rate_of_depreciation")
 
+			if args.get("rate_of_depreciation") and not flt(args.get("expected_value_after_useful_life")):
+				return args.get("rate_of_depreciation")
+
 			if self.flags.increase_in_asset_value_due_to_repair:
 				value = flt(args.get("expected_value_after_useful_life")) / flt(
 					args.get("value_after_depreciation")
 				)
 			else:
-				value = flt(args.get("expected_value_after_useful_life")) / flt(self.gross_purchase_amount)
+				value = flt(args.get("expected_value_after_useful_life")) / (
+					flt(self.gross_purchase_amount) - flt(self.opening_accumulated_depreciation)
+				)
 
 			depreciation_rate = math.pow(
 				value,
 				1.0
 				/ (
 					(
-						flt(args.get("total_number_of_depreciations"), 2)
+						(
+							flt(args.get("total_number_of_depreciations"), 2)
+							- flt(self.opening_number_of_booked_depreciations)
+						)
 						* flt(args.get("frequency_of_depreciation"))
 					)
 					/ 12
@@ -896,18 +924,19 @@ def create_asset_maintenance(asset, item_code, item_name, asset_category, compan
 
 
 @frappe.whitelist()
-def create_asset_repair(asset, asset_name):
+def create_asset_repair(company, asset, asset_name):
 	asset_repair = frappe.new_doc("Asset Repair")
-	asset_repair.update({"asset": asset, "asset_name": asset_name})
+	asset_repair.update({"company": company, "asset": asset, "asset_name": asset_name})
 	return asset_repair
 
 
 @frappe.whitelist()
-def create_asset_capitalization(asset, asset_name, item_code):
+def create_asset_capitalization(company, asset, asset_name, item_code):
 	asset_capitalization = frappe.new_doc("Asset Capitalization")
 	asset_capitalization.update(
 		{
 			"target_asset": asset,
+			"company": company,
 			"capitalization_method": "Choose a WIP composite asset",
 			"target_asset_name": asset_name,
 			"target_item_code": item_code,

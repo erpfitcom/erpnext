@@ -316,7 +316,9 @@ def get_conditions(filters, query, doctype, child_doctype=None, payments=False):
 		query = query.where(parent_doc.posting_date <= filters.to_date)
 
 	if payments:
-		if filters.get("cost_center"):
+		if doctype == "Journal Entry" and filters.get("cost_center"):
+			query = query.where(child_doc.cost_center == filters.cost_center)
+		elif filters.get("cost_center"):
 			query = query.where(parent_doc.cost_center == filters.cost_center)
 	else:
 		if filters.get("cost_center"):
