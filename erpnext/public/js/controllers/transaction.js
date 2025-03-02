@@ -1980,7 +1980,7 @@ erpnext.TransactionController = class TransactionController extends erpnext.taxe
 	}
 
 	should_apply_better_rate() {
-		return ["POS Invoice", "Sales Order", "Sales Invoice"].includes(this.frm.doctype);
+		return ["POS Invoice", "Sales Order", "Sales Invoice"].includes(this.frm.doctype) && !this.frm.doc.ignore_pricing_rule;
 	}
 
 	get_better_rate(item) {
