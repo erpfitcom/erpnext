@@ -53,10 +53,13 @@ erpnext.PointOfSale.ItemSelector = class {
 		if (this.price_lists && this.price_lists.length) {
 			this.item_prices = await frappe.db
 				.get_list("Item Price", {
-					limit: 9999, // @fixme: proper pagination
-					filters: [["price_list", "in", this.price_lists.map((p) => p.name)]],
+					limit: 99999, // @fixme: proper pagination
+					filters: [
+						["price_list", "in", this.price_lists.map((p) => p.name)],
+						["valid_from", ">=", frappe.datetime.get_today()],
+					],
 					or_filters: [
-						["valid_from", "<=", frappe.datetime.get_today()],
+						["price_list", "in", this.price_lists.map((p) => p.name)],
 						["valid_from", "is", "not set"],
 					],
 					fields: ["item_code", "price_list_rate", "currency", "valid_from", "valid_upto"],
