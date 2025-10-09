@@ -46,6 +46,7 @@ erpnext.PointOfSale.ItemSelector = class {
 				["selling", "=", 1],
 				["enabled", "=", 1],
 				["name", "!=", this.price_list],
+				["name", "not in", ["PL_Shopee", "PL_Lazada", "PL_Tiktok"]]
 			],
 			fields: ["name"],
 		});
@@ -58,10 +59,10 @@ erpnext.PointOfSale.ItemSelector = class {
 						["price_list", "in", this.price_lists.map((p) => p.name)],
 						["valid_from", "<=", frappe.datetime.get_today()],
 					],
-					or_filters: [
-						["price_list", "in", this.price_lists.map((p) => p.name)],
-						["valid_from", "is", "not set"],
-					],
+					// or_filters: [
+					// 	["price_list", "in", this.price_lists.map((p) => p.name)],
+					// 	["valid_from", "is", "not set"],
+					// ],
 					fields: ["item_code", "price_list_rate", "currency", "valid_from", "valid_upto"],
 				})
 				.then((item_prices) => {

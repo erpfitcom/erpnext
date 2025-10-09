@@ -1993,6 +1993,7 @@ erpnext.TransactionController = class TransactionController extends erpnext.taxe
 		const better_prices = this.item_prices
 			.filter((item_price) => item_price.item_code === item.item_code && item_price.currency === this.frm.doc.currency && item_price.price_list_rate < item.rate)
 			.sort((a, b) => b.price_list_rate - a.price_list_rate);
+		console.log("better_prices", better_prices);
 		return better_prices.length ? better_prices[0].price_list_rate : item.rate;
 	}
 
@@ -2005,6 +2006,7 @@ erpnext.TransactionController = class TransactionController extends erpnext.taxe
 			filters: [
 				["selling", "=", 1], 
 				["enabled", "=", 1],
+				["name", "not in", ["PL_Shopee", "PL_Lazada", "PL_Tiktok"]]
 			],
 			fields: ["name"]
 		}).then((price_lists) => {
@@ -2012,13 +2014,14 @@ erpnext.TransactionController = class TransactionController extends erpnext.taxe
 			frappe.db.get_list('Item Price', {
 				limit: 9999, // @fixme: proper pagination
 				filters: [
-					["price_list", "in", price_lists.map(p => p.name)]
-				],
-				or_filters: [
+					["price_list", "in", price_lists.map(p => p.name)],
 					["valid_from", "<=", frappe.datetime.get_today()],
-					["valid_from", "is", "not set"]
 				],
-				fields: ['item_code', 'price_list_rate', 'currency', 'valid_from', 'valid_upto']
+				// or_filters: [
+				// 	["price_list", "in", price_lists.map(p => p.name)],
+				// 	["valid_from", "is", "not set"]
+				// ],
+				fields: ['item_code', 'price_list_rate', 'currency', 'valid_from', 'valid_upto', 'price_list']
 			}).then((item_prices) => {
 				me.item_prices = item_prices.filter((item_price) => !item_price.valid_upto || frappe.datetime.get_day_diff(frappe.datetime.get_today(), item_price.valid_upto) <= 0);
 				return me.item_prices;
