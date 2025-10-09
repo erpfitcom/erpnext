@@ -56,7 +56,7 @@ erpnext.PointOfSale.ItemSelector = class {
 					limit: 99999, // @fixme: proper pagination
 					filters: [
 						["price_list", "in", this.price_lists.map((p) => p.name)],
-						["valid_from", ">=", frappe.datetime.get_today()],
+						["valid_from", "<=", frappe.datetime.get_today()],
 					],
 					or_filters: [
 						["price_list", "in", this.price_lists.map((p) => p.name)],
